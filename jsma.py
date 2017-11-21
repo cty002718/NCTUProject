@@ -39,6 +39,17 @@ def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict,
 
             grads_other += np.reshape(run_grad, (1, 784))
 
+
+
+        invalid = list(set(range(784)) - search_domain)
+        grads_target[0][invalid] = -theta * np.max(np.abs(grads_target))
+        grads_other[0][invalid] = theta * np.max(np.abs(grads_other))
+
+        if theta > 0:
+            scores_mask = ((grads_target > 0) & (grads_other < 0))
+        else:
+            scores_mask = ((grads_target < 0) & (grads_other > 0))
+
         for i in range(784):
             sum = 0
             p1, p2 = i // 28, i % 28
@@ -55,18 +66,12 @@ def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict,
             if tmp4r >= 0:
                 sum += adv_x[0][tmp4l*28+tmp4r]
 
-            if sum >= 1:
-                side_add[0][i] = 1
+            if scores_mask[0][i] > 0:
+                side_add[0][i] = sum
+            else:
+                side_add[0][i] = 0
 
-        invalid = list(set(range(784)) - search_domain)
-        grads_target[0][invalid] = -theta * np.max(np.abs(grads_target))
-        grads_other[0][invalid] = theta * np.max(np.abs(grads_other))
-
-        if theta > 0:
-            scores_mask = ((grads_target > 0) & (grads_other < 0))
-        else:
-            scores_mask = ((grads_target < 0) & (grads_other > 0))
-
+        '''
         for i in range(784):
             if scores_mask[0][i]:
                 if side_add[0][i] == 1:
@@ -76,12 +81,28 @@ def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict,
                     else:
                         adv_x[0, i] = np.maximum(0, adv_x[0, i] - theta)
                         add_x[0, i] += theta
+        
+        for i in range(784):
+            if adv_x[0][i] == 1:
+                search_domain.discard(i)
+        '''
+
+
+        scores = scores_mask * (np.abs(grads_target * grads_other))
+        scores += side_add * 2
+
+        p = np.argmax(scores)
+        if theta > 0:
+            adv_x[0, p] = np.minimum(1, adv_x[0, p] + theta)
+        else:
+            adv_x[0, p] = np.maximum(0, adv_x[0, p] - theta)
+        search_domain.discard(p)
+
 
         for i in range(784):
             if adv_x[0][i] == 1:
                 search_domain.discard(i)
-
-        #print(sess.run(predict, feed_dict={xs: adv_x, keep_prob: 1}))
+        print(sess.run(predict, feed_dict={xs: adv_x, keep_prob: 1}))
         current = sess.run(correct_predict, feed_dict={xs: adv_x, keep_prob: 1})
         iteration = iteration + 1
 
