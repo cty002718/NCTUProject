@@ -94,7 +94,10 @@ def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict,
         '''
         
         scores = scores_mask * (np.abs(grads_target * grads_other))
-        scores += side_add * 2
+        if theta > 0:
+            scores += side_add * 1
+        else:
+            scores -= side_add * 1
 
         p = np.argmax(scores)
         #print(p)
