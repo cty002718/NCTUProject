@@ -6,26 +6,29 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image
 from Structure import cnn_structure, fc_structure, sub_structure
-from FCpredict import compute_accuracy, predict_from_array, predict_from_dir_to_dir
 import matplotlib.pyplot as plt
+if DIR == 'ADV_FC':
+    from FCpredict import compute_accuracy, predict_from_array, predict_from_dir_to_dir
+if DIR == 'ADV_CNN':
+    from CNNpredict import compute_accuracy, predict_from_array, predict_from_dir_to_dir
 
 def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict, target, theta, grads):
+    
     adv_x = np.copy(image)
-
-    if theta > 0:
-        search_domain = set([i for i in range(784)
-                             if adv_x[0, i] < 255])
-    else:
-        search_domain = set([i for i in range(784)
-                             if adv_x[0, i] > 0])
-
     add_x = np.zeros((1, 784), dtype=float)
 
+    search_domain1 = set([i for i in range(784)
+                            if adv_x[0, i] < 255])
+    search_domain2 = set([i for i in range(784)
+                            if adv_x[0, i] > 0])
     iteration = 0
     current = sess.run(correct_predict, feed_dict={xs: adv_x, keep_prob: 1})
 
-    while (current != target and iteration < ITER and
-            len(search_domain) > 1):
+    while (current != target and iteration < ITER):
+        if theta > 0 and len(search_domain1) < 1:
+            break
+        if theta < 0 and len(search_domain2) < 1:
+            break
 
         grads_target = np.zeros((1, 784), dtype=float)
         grads_other = np.zeros((1, 784), dtype=float)
@@ -36,12 +39,13 @@ def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict,
             if i == target:
                 grads_target = np.reshape(run_grad, (1, 784))
                 continue
-
             grads_other += np.reshape(run_grad, (1, 784))
+        
+        if theta > 0:
+            invalid = list(set(range(784)) - search_domain1)
+        else:
+            invalid = list(set(range(784)) - search_domain2)
 
-
-
-        invalid = list(set(range(784)) - search_domain)
         grads_target[0][invalid] = -theta * np.max(np.abs(grads_target))
         grads_other[0][invalid] = theta * np.max(np.abs(grads_other))
 
@@ -49,28 +53,28 @@ def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict,
             scores_mask = ((grads_target > 0) & (grads_other < 0))
         else:
             scores_mask = ((grads_target < 0) & (grads_other > 0))
+        
+        if SIDE == True:
+            for i in range(784):
+                sum = 0
+                p1, p2 = i // 28, i % 28
+                tmp1l, tmp1r = p1+1, p2
+                tmp2l, tmp2r = p1-1, p2
+                tmp3l, tmp3r = p1, p2+1
+                tmp4l, tmp4r = p1, p2-1
+                if tmp1l < 28:
+                    sum += adv_x[0][tmp1l*28+tmp1r]
+                if tmp2l >= 0:
+                    sum += adv_x[0][tmp2l*28+tmp2r]
+                if tmp3r < 28:
+                    sum += adv_x[0][tmp3l*28+tmp3r]
+                if tmp4r >= 0:
+                    sum += adv_x[0][tmp4l*28+tmp4r]
 
-        for i in range(784):
-            sum = 0
-            p1, p2 = i // 28, i % 28
-            tmp1l, tmp1r = p1+1, p2
-            tmp2l, tmp2r = p1-1, p2
-            tmp3l, tmp3r = p1, p2+1
-            tmp4l, tmp4r = p1, p2-1
-            if tmp1l < 28:
-                sum += adv_x[0][tmp1l*28+tmp1r]
-            if tmp2l >= 0:
-                sum += adv_x[0][tmp2l*28+tmp2r]
-            if tmp3r < 28:
-                sum += adv_x[0][tmp3l*28+tmp3r]
-            if tmp4r >= 0:
-                sum += adv_x[0][tmp4l*28+tmp4r]
-
-            if scores_mask[0][i] > 0:
-                side_add[0][i] = sum
-            else:
-                side_add[0][i] = 0
-
+                if scores_mask[0][i] > 0:
+                    side_add[0][i] = sum
+                else:
+                    side_add[0][i] = 0
         '''
         for i in range(784):
             if scores_mask[0][i]:
@@ -79,36 +83,37 @@ def jsmaOnePicture(predict, num, a, sess, image, xs, keep_prob, correct_predict,
                         adv_x[0, i] = np.minimum(1, adv_x[0, i] + theta)
                         add_x[0, i] += theta
                     else:
-                        adv_x[0, i] = np.maximum(0, adv_x[0, i] - theta)
+                        adv_x[0, i] = np.maximum(0, adv_x[0, i] + theta)
                         add_x[0, i] += theta
         
         for i in range(784):
             if adv_x[0][i] == 1:
-                search_domain.discard(i)
+                search_domain1.discard(i)
+            if adv_x[0][i] == 0:
+                search_domain2.discard(i)
         '''
-
-
+        
         scores = scores_mask * (np.abs(grads_target * grads_other))
         scores += side_add * 2
 
         p = np.argmax(scores)
+        #print(p)
         if theta > 0:
             adv_x[0, p] = np.minimum(1, adv_x[0, p] + theta)
         else:
-            adv_x[0, p] = np.maximum(0, adv_x[0, p] - theta)
-        search_domain.discard(p)
+            adv_x[0, p] = np.maximum(0, adv_x[0, p] + theta)
+        
+        if theta > 0:
+            search_domain1.discard(p)
+        else:
+            search_domain2.discard(p)
 
-
-        for i in range(784):
-            if adv_x[0][i] == 1:
-                search_domain.discard(i)
-        print(sess.run(predict, feed_dict={xs: adv_x, keep_prob: 1}))
+        #print(sess.run(predict, feed_dict={xs: adv_x, keep_prob: 1}))
         current = sess.run(correct_predict, feed_dict={xs: adv_x, keep_prob: 1})
         iteration = iteration + 1
+        theta = -theta
 
-
-
-    return current, adv_x
+    return current, adv_x, iteration
 
 
 def jsma():
@@ -144,10 +149,11 @@ def jsma():
 
     count = 0
 
-    f, a = plt.subplots(10, 11, figsize=(12, 4))
+    f, a = plt.subplots(10, 10, figsize=(12, 4))
 
     suc = 0
     reali = 0
+    totaliter = 0
     for target in range(10):
         suc_pic = 0
         for i, image in enumerate(MNIST):
@@ -155,9 +161,10 @@ def jsma():
             test1 = sess.run(correct_predict, feed_dict={xs: image, keep_prob: 1})
             if test1 == target:
                 continue
-
-            test2, adv_x = jsmaOnePicture(predict, reali, a, sess, image, xs, keep_prob, correct_predict, target, THETA, gradients)
+            
+            test2, adv_x, iter2 = jsmaOnePicture(predict, reali, a, sess, image, xs, keep_prob, correct_predict, target, THETA, gradients)
             reali += 1
+            totaliter += iter2
             '''
             if target == test2:
                 suc = 1
@@ -181,6 +188,7 @@ def jsma():
             print(i, test1, test2)
 
     print(suc / reali)
+    print(totaliter / reali)
     plt.show()
 
     #for i, d in enumerate(deltax):
